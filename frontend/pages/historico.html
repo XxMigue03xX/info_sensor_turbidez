@@ -1,0 +1,165 @@
+<!-- Vista de datos; el router inyecta este HTML -->
+<!-- ───────── Modal Exportación ───────── -->
+<div class="modal fade" id="exportModal" tabindex="-1" role="dialog" aria-labelledby="exportModalLbl" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header bg-info">
+        <h5 class="modal-title" id="exportModalLbl">Exportar</h5>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Cerrar">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <p id="exportCount" class="mb-2"><i class="fas fa-spinner fa-spin"></i> Calculando…</p>
+
+        <div class="form-group">
+          <label>Métricas a incluir</label>
+          <select id="selMetricas" class="form-control">
+            <option value="todo">Temperatura + Humedad</option>
+            <option value="temp">Solo temperatura</option>
+            <option value="hum">Solo humedad</option>
+          </select>
+        </div>
+
+        <div id="exportWarn" class="alert alert-warning d-none"></div>
+      </div>
+
+      <div class="modal-footer">
+        <button id="btnExportConfirm" type="button" class="btn btn-primary">Descargar</button>
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- Sección principal -->
+<section class="content" id="dataView">
+  <div class="container-fluid">
+    <!-- Cabecera -->
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h2 class="mb-0">Datos de colmenas</h2>
+    </div>
+
+    <!-- Controles -->
+    <div class="card-body card mb-3">
+
+        <!-- 1️⃣ Selector + Toggle (fila responsive) -->
+        <div class="row mb-3 align-items-end">
+
+          <!-- Selector de colmena -->
+          <div class="form-group mb-2 col-lg-7 col-md-7 col-sm-12" style="min-width:260px">
+             <label class="mb-1">Colmena</label>
+             <select id="selHive" class="form-control"></select>
+           </div>
+          
+          <!-- Toggle Tiempo real -->
+          <div class="form-group mb-2 col-lg-3 col-md-5 col-sm-12 d-flex justify-content-lg-end justify-content-md-end">
+            <div class="custom-control custom-switch">
+               <input
+                 type="checkbox"
+                 class="custom-control-input"
+                 id="chkRealtime"
+               />
+               <label class="custom-control-label" for="chkRealtime">
+                 Tiempo real&nbsp;<small>(24&nbsp;h)</small>
+               </label>
+             </div>
+           </div>
+
+        </div>
+
+        <!-- 2️⃣ Controles Histórico -->
+        <div
+          id="histControls"
+          class="d-flex flex-wrap align-items-end mb-3"
+        >
+          <div class="form-group mb-2 mr-2">
+            <label class="mb-1">Desde</label>
+            <input id="inpDesde" type="datetime-local" class="form-control" />
+          </div>
+          <div class="form-group mb-2 mr-2">
+            <label class="mb-1">Hasta</label>
+            <input id="inpHasta" type="datetime-local" class="form-control" />
+          </div>
+          <button id="btnBuscar" class="btn btn-info mb-2">
+            <i class="fas fa-search mr-1"></i>Buscar
+          </button>
+        </div>
+
+        <!-- 3️⃣ Botones Exportar -->
+        <div class="d-flex flex-wrap justify-content-end">
+          <button
+            id="btnCsv"
+            type="button"
+            class="btn btn-outline-primary mr-2 mb-2"
+            disabled
+          >
+            <i class="fas fa-file-csv mr-1"></i>CSV
+          </button>
+          <button
+            id="btnPdf"
+            type="button"
+            class="btn btn-outline-secondary mb-2"
+            disabled
+          >
+            <i class="fas fa-file-pdf mr-1"></i>PDF
+          </button>
+        </div>
+      </div>
+
+    <!-- Mensaje vacío -->
+    <div id="noDataMsg" class="alert alert-secondary d-none">
+      <i class="fas fa-info-circle mr-1"></i>No hay datos para mostrar.
+    </div>
+
+    <!-- Gráficas -->
+    <div class="row">
+      <div class="col-md-12 mb-3">
+        <div class="card">
+          <div class="card-header d-flex justify-content-between align-items-center w-100">
+            <h3 class="card-title mb-0 flex-grow-1 fw-bold float-none">Temperatura</h3>
+            <!-- Botón reset para TEMPERATURA -->
+            <div class="btn-group flex-wrap" role="group">
+              <button id="resetZoomTempBtn" class="btn btn-outline-secondary btn-sm mb-1">
+                <i class="fas fa-sync-alt mr-1"></i>
+                <span class="d-none d-sm-inline">Reset Zoom</span>
+              </button>
+              <button id="btnVerDetalleTemp" class="btn btn-secondary btn-sm mb-1" disabled>
+                <i class="fas fa-search-plus mr-1"></i>
+                <span class="d-none d-sm-inline">Ver con más detalle</span>
+              </button>
+            </div>
+          </div>
+          <div class="card-body p-0">
+            <div style="height: 320px" class="p-3">
+              <canvas id="tempCanvas" class="w-100 h-100"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-12 mb-3">
+        <div class="card">
+          <div class="card-header d-flex justify-content-between align-items-center w-100">
+            <h3 class="card-title mb-0 flex-grow-1 fw-bold float-none">Humedad</h3>
+            <!-- Botón reset para HUMEDAD -->
+            <div class="btn-group flex-wrap" role="group">
+              <button id="resetZoomHumBtn" class="btn btn-outline-secondary btn-sm mb-1">
+                <i class="fas fa-sync-alt mr-1"></i>
+                <span class="d-none d-sm-inline">Reset Zoom</span>
+              </button>
+              <button id="btnVerDetalleHum" class="btn btn-secondary btn-sm mb-1" disabled>
+                <i class="fas fa-search-plus mr-1"></i>
+                <span class="d-none d-sm-inline">Ver con más detalle</span>
+              </button>
+            </div>
+          </div>
+          <div class="card-body p-0">
+            <div style="height: 320px" class="p-3">
+              <canvas id="humCanvas" class="w-100 h-100"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

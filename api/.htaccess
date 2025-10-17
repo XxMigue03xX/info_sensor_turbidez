@@ -1,0 +1,6 @@
+RewriteEngine On
+RewriteBase /info_sensor_turbidez/api/
+# Si el archivo o directorio no existe, redirige a index.php
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [L,QSA]

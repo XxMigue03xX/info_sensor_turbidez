@@ -1,0 +1,30 @@
+<!-- ───────── Dashboard – fragmento directo para router ───────── -->
+<section class="content">
+  <!-- Estadísticas generales -->
+  <div class="row" id="statsRow"></div>
+  
+  <!-- Alertas recientes -->
+  <div class="row"><div class="col-12" id="alertsCol"></div></div>
+
+  <!-- Panel apiarios -->
+  <div class="row" id="apiariesPanel"></div>
+
+  <!-- Selector de colmena (RT 12 h) -->
+  <div class="row">
+    <!-- Centro y ancho 80 % -->
+    <div class="col-12 d-flex justify-content-center">
+      <div class="form-group mb-4 w-100" style="max-width: 80%;">
+        <label for="selDashboardHive" class="mb-0">Colmena</label>
+        <select id="selDashboardHive" class="form-control w-100"></select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Gráficos -->
+  <div class="row">
+    <!-- mb-3 evita “pegado” inferior y mantiene fondo gris uniforme -->
+    <div class="col-lg-6 mb-3" id="tempChartCol"></div>
+    <div class="col-lg-6 mb-3" id="humChartCol"></div>
+  </div>
+
+</section>
