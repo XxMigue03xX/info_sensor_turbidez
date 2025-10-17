@@ -1,30 +1,28 @@
-<!-- ───────── Dashboard – fragmento directo para router ───────── -->
-<section class="content">
-  <!-- Estadísticas generales -->
-  <div class="row" id="statsRow"></div>
-  
-  <!-- Alertas recientes -->
-  <div class="row"><div class="col-12" id="alertsCol"></div></div>
-
-  <!-- Panel apiarios -->
-  <div class="row" id="apiariesPanel"></div>
-
-  <!-- Selector de colmena (RT 12 h) -->
-  <div class="row">
-    <!-- Centro y ancho 80 % -->
-    <div class="col-12 d-flex justify-content-center">
-      <div class="form-group mb-4 w-100" style="max-width: 80%;">
-        <label for="selDashboardHive" class="mb-0">Colmena</label>
-        <select id="selDashboardHive" class="form-control w-100"></select>
+<div class="row">
+  <div class="col-12">
+    <div class="card shadow-sm">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-info-circle mr-1"></i>Estado</h3>
+      </div>
+      <div class="card-body">
+        <div class="row text-center">
+          <div class="col-sm-4 mb-3">
+            <div class="h6 text-muted">Última NTU</div>
+            <div id="last-ntu" class="h2 mb-0">—</div>
+          </div>
+          <div class="col-sm-4 mb-3">
+            <div class="h6 text-muted">Muestras (últimas)</div>
+            <div id="sample-count" class="h2 mb-0">—</div>
+          </div>
+          <div class="col-sm-4 mb-3">
+            <div class="h6 text-muted">Actualizado</div>
+            <div id="last-ts" class="h2 mb-0">—</div>
+          </div>
+        </div>
+        <div class="text-right">
+          <button id="btn-refresh" class="btn btn-sm btn-primary"><i class="fas fa-sync-alt mr-1"></i>Actualizar</button>
+        </div>
       </div>
     </div>
   </div>
-
-  <!-- Gráficos -->
-  <div class="row">
-    <!-- mb-3 evita “pegado” inferior y mantiene fondo gris uniforme -->
-    <div class="col-lg-6 mb-3" id="tempChartCol"></div>
-    <div class="col-lg-6 mb-3" id="humChartCol"></div>
-  </div>
-
-</section>
+</div>

@@ -1,63 +1,46 @@
-// mapa de rutas (hash -> archivo HTML)
+import { loadHtmlInto } from "../utils/dom.js";
+
 const routes = {
-  inicio: "pages/inicio.html",
-  historico: "pages/historico.html",
+  inicio:    { page: "pages/inicio.html",    controller: () => import("../views/inicioView.js") },
+  historico: { page: "pages/historico.html", controller: () => import("../views/historicoView.js") },
 };
 
-let currentView = null;   // guarda la vista actual para evitar recargas innecesarias
-let routerStarted = false;
+let currentView = null;
+let started = false;
 
-async function loadView(view) {
-  const file = routes[view] || routes["inicio"];
-  const res = await fetch(file, { cache: "no-store" });
-  if (!res.ok) throw new Error(`No se pudo cargar ${file}`);
-  const html = await res.text();
-
-  const content = document.getElementById("content");
-  if (!content) throw new Error("No existe el contenedor #content");
-  content.innerHTML = html;
-
-  // Cargar JS específico de la vista si existe
-  try {
-    const module = await import(`../views/${view}View.js`);
-    if (module?.init) await module.init();
-  } catch (err) {
-    // opcional: silenciar si no existe el módulo de la vista
-    // console.debug(`Sin controlador para la vista ${view}`);
-  }
+function parseHash() {
+  const raw = (location.hash || "").replace(/^#\/?/, "");
+  const [view] = raw.split("?"); // sin query por ahora
+  return view || "inicio";
 }
 
-async function navigateTo(hash) {
-  const view = hash?.replace(/^#/, "") || "inicio";
-  const exists = !!routes[view];
+async function loadRoute(viewName) {
+  const route = routes[viewName] || routes.inicio;
+  if (currentView === viewName) return;         // evita recargar lo mismo
+  currentView = viewName;
 
-  // normaliza hash inválido hacia #inicio (y evita bucle si ya estamos)
-  if (!exists) {
-    if (location.hash !== "#inicio") {
-      history.replaceState(null, "", "#inicio");
-    }
-    return navigateTo("#inicio");
+  await loadHtmlInto("#content", route.page);   // inyecta HTML
+  try {
+    const mod = await route.controller();       // carga controlador si existe
+    if (typeof mod.init === "function") await mod.init();
+  } catch (e) {
+    // si no hay controlador, no es error
+    // console.debug(`Vista ${viewName} sin controlador específico`, e);
   }
-
-  // evita recarga de la misma vista en bucle
-  if (currentView === view) return;
-
-  currentView = view;
-  await loadView(view);
 }
 
 function onHashChange() {
-  // Solo navega a la ruta actual
-  navigateTo(location.hash);
+  loadRoute(parseHash());
 }
 
 export async function initRouter() {
-  if (routerStarted) return;
-  routerStarted = true;
+  if (started) return;
+  started = true;
 
-  // listeners
   window.addEventListener("hashchange", onHashChange);
-
-  // primera navegación
-  await navigateTo(location.hash);
+  // primera navegación (normaliza hash)
+  if (!location.hash) {
+    history.replaceState(null, "", "#/inicio");
+  }
+  await loadRoute(parseHash());
 }

@@ -1,44 +1,4 @@
-/* ============================================================
-   BeeMonitor – overrides de tema
-   ============================================================ */
-:root {
-  --bee-primary: #ffc107;   /* amarillo abeja */
-  --bee-dark:    #5c421b;   /* marrón colmena */
-}
-
-/* colores primarios */
-.bg-primary, .btn-primary {
-  background-color: var(--bee-primary) !important;
-  border-color: var(--bee-primary) !important;
-}
-.text-primary   { color: var(--bee-primary) !important; }
-a               { color: var(--bee-dark); }
-a:hover         { color: #000; }
-
-/* sidebar activo */
-.nav-sidebar .nav-link.active {
-  background-color: var(--bee-primary) !important;
-  color: #212529 !important;
-}
-
-/* tamaño logo en sidebar */
-.brand-link .brand-image {
-  width: 34px; height: 34px;
-}
-
-/* login / register centrar mejor en pantallas altas */
-.login-page, .register-page {
-  align-items: center; display: flex;
-}
-
-/* ---------- Caja de alerta parpadeante ---------- */
-@keyframes blink-red {
-  0%,100% { background-color:#dc3545; }
-  50%     { background-color:#a71d2a; }
-}
-.alert-blink { animation: blink-red 1s linear infinite; color:#fff; }
-
-/* ------ Fix títulos en tarjetas flex ------ */
-.card-header.d-flex .card-title {
-  float: none !important;   /* anula flotado de AdminLTE */
-}
+/* Ajustes mínimos */
+body { background: #f4f6f9; }
+.navbar-brand { font-weight: 700; letter-spacing: .2px; }
+#content > .card { border-radius: 12px; }
