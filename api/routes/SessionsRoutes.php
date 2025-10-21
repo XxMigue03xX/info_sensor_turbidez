@@ -4,9 +4,9 @@ declare(strict_types=1);
 /**
  * Rutas de sesiones
  * Endpoints:
- *  - POST /activate                -> crear sesión activa (ventana de captura)
  *  - GET  /session                 -> listar sesiones (paginado)
  *  - GET  /session/{session_id}    -> detalle de una sesión
+ *  - GET  /session/last            -> detalle de la última sesión culminada
  */
 
 require_once __DIR__ . '/../middleware/Auth.php';
@@ -27,10 +27,11 @@ if ($uri === '/session') {
     }
     else if ($method === 'POST'){
         // /POST registrar nueva sesión
+        // Autenticación por token
         $pdo = db();
-        requireDeviceAuth($pdo);
+        $deviceId = requireDeviceAuth($pdo);
         // Controlador de registro de mediciones (lote)
-        MeasurementController::register($pdo);
+        MeasurementController::register($pdo, $deviceId);
     }
     return true;
 }
@@ -44,6 +45,17 @@ if (preg_match('#^/session/(\d+)$#', $uri, $m)) {
 
     $sessionId = (int)$m[1];
     SessionController::getOne($pdo, $sessionId);
+    return true;
+}
+
+/* ===== GET /session/last ===== */
+if ($uri === '/session/last') {
+    if ($method !== 'GET') {
+        header('Allow: GET');
+        sendResponse(['error' => 'Método no permitido'], 405);
+    }
+
+    SessionController::getLast($pdo);
     return true;
 }
 

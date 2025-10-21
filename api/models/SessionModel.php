@@ -75,6 +75,44 @@ final class SessionModel
         return $row ?: null;
     }
 
+    /**
+     * Última sesión culminada (active_until <= now).
+     * Si $deviceId es null → busca en todos los dispositivos.
+     * Retorna fila con started_at y active_until en formato 'Y-m-d H:i:s.u'
+     */
+    public function getLastFinished(?string $deviceId = null, ?DateTimeInterface $now = null): ?array
+    {
+        $now = $now ?? new DateTimeImmutable('now', new DateTimeZone('UTC'));
+
+        if ($deviceId) {
+            $st = $this->pdo->prepare(
+                "SELECT session_id, device_id,
+                    DATE_FORMAT(started_at,   '%Y-%m-%d %H:%i:%s.%f') AS started_at,
+                    DATE_FORMAT(active_until, '%Y-%m-%d %H:%i:%s.%f') AS active_until
+             FROM session
+             WHERE device_id = ?
+               AND active_until <= ?
+             ORDER BY session_id DESC
+             LIMIT 1"
+            );
+            $st->execute([$deviceId, self::fmtDtMs($now)]);
+        } else {
+            $st = $this->pdo->prepare(
+                "SELECT session_id, device_id,
+                    DATE_FORMAT(started_at,   '%Y-%m-%d %H:%i:%s.%f') AS started_at,
+                    DATE_FORMAT(active_until, '%Y-%m-%d %H:%i:%s.%f') AS active_until
+             FROM session
+             WHERE active_until <= ?
+             ORDER BY session_id DESC
+             LIMIT 1"
+            );
+            $st->execute([self::fmtDtMs($now)]);
+        }
+
+        $row = $st->fetch();
+        return $row ?: null;
+    }
+
     /** True si existe una sesión activa para el device. */
     public function hasActive(string $deviceId, ?DateTimeInterface $now = null): bool
     {
@@ -88,7 +126,6 @@ final class SessionModel
     public function list(?string $deviceId, int $limit = 50, int $offset = 0): array
     {
         $limit = max(1, min(100, $limit));
-        $offset = max(0, $offset);
 
         if ($deviceId) {
             $st = $this->pdo->prepare(
@@ -116,14 +153,13 @@ final class SessionModel
                  LIMIT ? OFFSET ?"
             );
             $st->bindValue(1, $limit, PDO::PARAM_INT);
-            $st->bindValue(2, $offset, PDO::PARAM_INT);
             $st->execute();
         }
 
         $items = $st->fetchAll();
         $total = (int) $this->pdo->query("SELECT FOUND_ROWS()")->fetchColumn();
 
-        return ['items' => $items, 'total' => $total, 'limit' => $limit, 'offset' => $offset];
+        return ['sessions' => $items, 'total' => $total, 'limit' => $limit];
     }
 
     /** Formatea DateTime(UTC) a 'Y-m-d H:i:s.v' compatible con DATETIME(3) */

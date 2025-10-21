@@ -1,4 +1,4 @@
-const API_BASE = "/info_sensor_turbidez/api"; // ajusta si es necesario
+const API_BASE = "http://localhost/info_sensor_turbidez/api";
 
 function getToken() {
   return localStorage.getItem("X_AUTH_TOKEN") || "";

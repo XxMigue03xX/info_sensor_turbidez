@@ -5,11 +5,8 @@ require_once __DIR__ . '/../models/SessionModel.php';
 
 final class CommandController
 {
-    public static function get(PDO $pdo): never
+    public static function get(PDO $pdo, string $deviceId = 'esp32-A'): never
     {
-        // Autenticación por token + device_id (query/post), según tu helper:
-        $deviceId = requireDeviceAuth($pdo);
-
         $service = new CommandService(new SessionModel($pdo));
         $payload = $service->getCommandForDevice($deviceId);
 

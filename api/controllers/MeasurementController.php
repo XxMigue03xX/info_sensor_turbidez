@@ -17,9 +17,8 @@ final class MeasurementController
      * Acepta "epoch_ms" o "device_epoch_ms" (alias) por compatibilidad.
      */
     // MeasurementController.php
-    public static function register(PDO $pdo): never
+    public static function register(PDO $pdo, string $deviceId): never
     {
-        $deviceId = requireDeviceAuth($pdo);
         $body = read_json();
 
         $sessionId = (int) ($body['session_id'] ?? 0);
