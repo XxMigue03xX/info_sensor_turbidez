@@ -1,9 +1,5 @@
 /**
  * Vista: Inicio
- * - Consulta /admin/command para mostrar si hay sesión activa y hora de finalización.
- * - Botón "Nueva sesión" -> POST /activate.
- * - Carga la última sesión culminada (GET /sessions/last) y grafica 60 NTU con timeSeriesChart (Chart.js).
- * - Muestra Media/Mediana/Moda/StdDev/Rango provenientes del backend (ya normalizados a 3 decimales).
  */
 
 import commandService from "../services/commandService.js";
@@ -26,9 +22,9 @@ export async function init() {
   const stddevEl = document.getElementById("stat-stddev");
   const rangeEl = document.getElementById("stat-range");
   const chartCanvas = document.getElementById("chart-last-session");
+  const countEl = document.getElementById("stat-count");
 
-  // Helpers de tiempo: parsear SIEMPRE timestamps backend como UTC (epoch ms),
-  // y formatear SIEMPRE para mostrar en America/Bogota (ya definido en timeSeriesChart).
+  // Helpers de tiempo
   const fmtTimeLocal = (isoOrMs) => {
     const dt =
       typeof isoOrMs === "number"
@@ -36,43 +32,23 @@ export async function init() {
         : luxon.DateTime.fromISO(String(isoOrMs), { zone: "utc" });
     return dt.setZone("America/Bogota").toFormat("dd LLL yyyy · HH:mm:ss");
   };
-  // UTC -> epoch ms (robusto)
   const toMsUTC = (v) => {
     if (v == null) return NaN;
-
-    // 1) Date
     if (v instanceof Date) return v.getTime();
-
-    // 2) Número (epoch ms)
     if (typeof v === "number") return v;
-
-    // 3) String
     let s = String(v).trim();
-
-    // 3.a ISO directo (acepta con o sin Z). Lo interpretamos en UTC.
     let dt = luxon.DateTime.fromISO(s, { zone: "utc" });
     if (dt.isValid) return dt.toMillis();
-
-    // 3.b Formato SQL: "YYYY-MM-DD HH:mm:ss[.SSS]" (sin 'T')
-    dt = luxon.DateTime.fromFormat(s, "yyyy-LL-dd HH:mm:ss.SSS", {
-      zone: "utc",
-    });
+    dt = luxon.DateTime.fromFormat(s, "yyyy-LL-dd HH:mm:ss.SSS", { zone: "utc" });
     if (dt.isValid) return dt.toMillis();
-
     dt = luxon.DateTime.fromFormat(s, "yyyy-LL-dd HH:mm:ss", { zone: "utc" });
     if (dt.isValid) return dt.toMillis();
-
-    // 3.c Caso común: viene sin 'T' -> forzamos 'T' y 'Z'
     if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?$/.test(s)) {
       const isoLike = s.replace(" ", "T") + "Z";
       dt = luxon.DateTime.fromISO(isoLike, { zone: "utc" });
       if (dt.isValid) return dt.toMillis();
     }
-
-    // 3.d String numérico (epoch ms)
     if (/^\d+$/.test(s)) return Number(s);
-
-    // 4) No se pudo parsear
     return NaN;
   };
 
@@ -87,7 +63,7 @@ export async function init() {
       statusBox.innerHTML = renderSessionStatus(cmd);
       footerNote.textContent =
         cmd.command === "start"
-          ? `La sesión termina a las ${fmtTimeLocal(cmd.expires_at)}.`
+          ? `Sesión activa: finaliza a las ${fmtTimeLocal(cmd.expires_at)}.`
           : `No hay sesión activa.`;
     } catch (e) {
       console.error(e);
@@ -102,12 +78,16 @@ export async function init() {
   function renderSessionStatus(cmd) {
     if (cmd.command === "start") {
       return `
-        <span class="badge badge-success mr-2"><i class="fas fa-check-circle mr-1"></i>Sesión activa</span>
+        <span class="badge badge-success mr-2">
+          <i class="fas fa-check-circle mr-1"></i>Sesión activa
+        </span>
         <span>Termina: <strong>${fmtTimeLocal(cmd.expires_at)}</strong></span>
       `;
     }
     return `
-      <span class="badge badge-secondary mr-2"><i class="fas fa-pause-circle mr-1"></i>Sin sesión activa</span>
+      <span class="badge badge-secondary mr-2">
+        <i class="fas fa-pause-circle mr-1"></i>Sin sesión activa
+      </span>
       <span>Puedes crear una nueva sesión cuando lo desees.</span>
     `;
   }
@@ -127,9 +107,7 @@ export async function init() {
       $("#modal-new-session").modal("hide");
       await loadCommand();
       toastr?.success?.(
-        `Sesión #${res.session_id} creada. Termina: ${fmtTimeLocal(
-          res.active_until
-        )}`,
+        `Sesión #${res.session_id} creada. Termina: ${fmtTimeLocal(res.active_until)}`,
         "OK"
       );
     } catch (e) {
@@ -152,13 +130,14 @@ export async function init() {
       stddevEl.textContent =
       rangeEl.textContent =
         "—";
+    countEl && (countEl.textContent = "—");
 
     try {
-      // Estructura esperada:
+      // Estructura:
       // { session_id, started_at, ended_at, data:[{device_recorded_at, ntu}], stats:{...} }
       const last = await sessionService.getLastSession();
 
-      // Serie de puntos: UTC -> epoch ms
+      // Serie de puntos
       const series = (last?.data || []).map((d) => ({
         x: toMsUTC(d.device_recorded_at),
         y: Number(d.ntu),
@@ -166,9 +145,10 @@ export async function init() {
 
       // Meta de sesión
       const count = series.length;
-      lastMeta.textContent = `Sesión #${
-        last.session_id
-      } — terminó: ${fmtTimeLocal(last.ended_at)} — muestras: ${count}`;
+      lastMeta.textContent = `Sesión #${last.session_id} — Terminó: ${fmtTimeLocal(
+        last.ended_at
+      )} — Mediciones: ${count}`;
+      countEl && (countEl.textContent = String(count));
 
       // Instanciar chart si no existe
       if (!ntuChart) {
@@ -182,25 +162,16 @@ export async function init() {
 
       // Cargar datos
       ntuChart.load(series);
-      console.log(series);
 
-      // Ventana temporal EXACTA: UTC -> epoch ms
+      // Ventana temporal EXACTA
       const tStart = toMsUTC(last.started_at);
       const tEnd = toMsUTC(last.ended_at);
-
-      // Elegir unidad por span
       const span = tEnd - tStart;
-      const unit =
-        span <= 2 * 60 * 1000
-          ? "second"
-          : span <= 60 * 60 * 1000
-          ? "minute"
-          : "hour";
-
+      const unit = span <= 2 * 60 * 1000 ? "second" : span <= 60 * 60 * 1000 ? "minute" : "hour";
       ntuChart.setWindowWithUnit(tStart, tEnd, unit);
-      ntuChart.updateThresholdRange(tStart, tEnd); // si usas umbrales
+      ntuChart.updateThresholdRange(tStart, tEnd);
 
-      // Stats del backend (ya normalizados a 3 decimales)
+      // Stats del backend
       const s = last?.stats || {};
       const mean = Number(s.ntu_mean);
       const median = Number(s.ntu_median);

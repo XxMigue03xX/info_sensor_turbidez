@@ -2,3 +2,54 @@
 body { background: #f4f6f9; }
 .navbar-brand { font-weight: 700; letter-spacing: .2px; }
 #content > .card { border-radius: 12px; }
+
+  /* --- Fix layout header + compat BS4→BS5 --- */
+  .card-header{
+    display:flex; align-items:center; flex-wrap:wrap; gap:.5rem;
+  }
+  .card-header .card-title{
+    margin:0; display:flex; align-items:center; gap:.5rem;
+    background:transparent; padding:0; border:0;
+  }
+  .card-header .header-actions{
+    margin-left:auto; display:flex; flex-wrap:wrap; gap:.5rem;
+  }
+  .card-header .header-actions .btn{ white-space:nowrap; }
+
+  /* Icono siempre con aire, sin depender de mr-* */
+  .btn i, .btn svg{ margin-right:.4rem; }
+
+  /* Compatibilidad si build cargó Bootstrap 5 (mr-* ya no existe) */
+  .mr-1{ margin-right:.25rem!important; }
+  .mr-2{ margin-right:.5rem!important; }
+
+  /* ===== Stats Card ===== */
+  .stat-grid{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:.75rem;
+  }
+  @media (min-width: 992px){
+    .stat-grid{ gap:1rem; }
+  }
+  .stat{
+    background:#f8fafc; /* neutro, luce bien en claro */
+    border:1px solid rgba(0,0,0,.06);
+    border-radius:.75rem;
+    padding:.9rem 1rem;
+    min-height:92px;
+    display:flex; flex-direction:column; justify-content:center; align-items:center;
+    text-align:center;
+  }
+  .stat .label{
+    font-size:.875rem; color:#6c757d;
+    display:flex; align-items:center; gap:.5rem;
+    margin-bottom:.15rem;
+  }
+  .stat .value{
+    font-size:1.9rem; font-weight:700; line-height:1;
+    color:#111827;
+    font-variant-numeric: tabular-nums; /* columnas visuales perfectas */
+    letter-spacing:.2px;
+  }
+  .stat-wide{ grid-column:1 / -1; } /* Rango ocupa todo el ancho */

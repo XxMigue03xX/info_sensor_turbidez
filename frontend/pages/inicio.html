@@ -1,14 +1,14 @@
 <!-- Caja 1: Estado de sesión actual + acción -->
-<div class="row">
+<div class="row mb-4">
   <div class="col-12">
-    <div class="card shadow-sm">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <h3 class="card-title mb-0">
-          <i class="fas fa-satellite-dish mr-2"></i>Estado de la sesión
+    <div class="card shadow">
+      <div class="card-header">
+        <h3 class="card-title">
+          <i class="fas fa-satellite-dish"></i>Estado de la sesión
         </h3>
-        <div>
+        <div class="header-actions">
           <button id="btn-new-session" class="btn btn-primary">
-            <i class="fas fa-play mr-1"></i>Nueva sesión
+            <i class="fas fa-play"></i>Nueva sesión
           </button>
         </div>
       </div>
@@ -27,16 +27,20 @@
 <!-- Caja 2: Gráfico + Estadísticos de la última sesión culminada -->
 <div class="row">
   <!-- Gráfico -->
-  <div class="col-lg-8">
-    <div class="card shadow-sm">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <h3 class="card-title mb-0"><i class="fas fa-chart-line mr-2"></i>NTU — Última sesión culminada</h3>
-        <button id="btn-reload-last" class="btn btn-outline-primary btn-sm">
-          <i class="fas fa-sync-alt mr-1"></i>Actualizar
-        </button>
+  <div class="col-lg-8 mb-4 mb-lg-0">
+    <div class="card shadow">
+      <div class="card-header">
+        <h3 class="card-title">
+          <i class="fas fa-chart-line"></i>NTU — Última sesión culminada
+        </h3>
+        <div class="header-actions">
+          <button id="btn-reload-last" class="btn btn-outline-primary btn-sm">
+            <i class="fas fa-sync-alt"></i>Recargar
+          </button>
+        </div>
       </div>
       <div class="card-body">
-        <div style="height: 360px">
+        <div style="height: 380px;">
           <canvas id="chart-last-session"></canvas>
         </div>
       </div>
@@ -48,37 +52,45 @@
 
   <!-- Estadísticos -->
   <div class="col-lg-4">
-    <div class="card shadow-sm h-100">
+    <div class="card shadow h-80">
       <div class="card-header">
-        <h3 class="card-title mb-0"><i class="fas fa-calculator mr-2"></i>Estadísticos</h3>
+        <h3 class="card-title mb-0">
+          <i class="fas fa-calculator mr-2"></i>Estadísticos de NTU
+        </h3>
       </div>
+
       <div class="card-body">
-        <div class="row text-center">
-          <div class="col-12 mb-3">
-            <div class="text-muted">Media</div>
-            <div id="stat-mean" class="h3 mb-0">—</div>
+        <div class="stat-grid">
+          <div class="stat">
+            <div class="label"><i class="fas fa-arrows-alt-h"></i>Media</div>
+            <div id="stat-mean" class="value">—</div>
           </div>
-          <div class="col-12">
-            <div class="text-muted">Moda</div>
-            <div id="stat-mode" class="h3 mb-0">—</div>
+
+          <div class="stat">
+            <div class="label"><i class="fas fa-ruler-horizontal"></i>Mediana</div>
+            <div id="stat-median" class="value">—</div>
           </div>
-          <div class="col-12 mb-3">
-            <div class="text-muted">Mediana</div>
-            <div id="stat-median" class="h3 mb-0">—</div>
+
+          <div class="stat">
+            <div class="label"><i class="fas fa-bullseye"></i>Moda</div>
+            <div id="stat-mode" class="value">—</div>
           </div>
-          <div class="col-12 mb-3">
-            <div class="text-muted">Desviación Estándar</div>
-            <div id="stat-stddev" class="h3 mb-0">—</div>
+
+          <div class="stat">
+            <div class="label"><i class="fas fa-wave-square"></i>Desv. estándar</div>
+            <div id="stat-stddev" class="value">—</div>
           </div>
-          <div class="col-12 mb-3">
-            <div class="text-muted">Rango</div>
-            <div id="stat-range" class="h3 mb-0">—</div>
+
+          <div class="stat stat-wide">
+            <div class="label"><i class="fas fa-arrows-alt-v"></i>Rango</div>
+            <div id="stat-range" class="value">—</div>
           </div>
         </div>
-        <hr>
-        <div class="small text-muted">
-          Calculado sobre los 60 valores NTU de la última sesión culminada.
-        </div>
+
+        <hr class="mt-3 mb-2">
+        <p class="small text-muted mb-0">
+          Calculado sobre <span id="stat-count">—</span> mediciones (NTU) de la última sesión culminada.
+        </p>
       </div>
     </div>
   </div>
@@ -101,7 +113,7 @@
         ¿Deseas continuar?
       </div>
       <div class="modal-footer">
-        <button id="btn-confirm-new-session" type="button" class="btn btn-primary">
+        <button id="btn-confirm-new-session" type="button" class="btn btn-primary mr-2">
           <i class="fas fa-check mr-1"></i>Sí, crear
         </button>
         <button type="button" class="btn btn-secondary" data-dismiss="modal">
