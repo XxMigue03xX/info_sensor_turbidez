@@ -2,88 +2,143 @@
 # -*- coding: utf-8 -*-
 
 """
-ESP32 simulator for /command and /session
-- Polls GET /command with X-Auth-Token
-- If "start": generates 60 readings (5 s apart) with epoch_ms timestamps
-- Sends POST /session with { session_id, readings[ {seq, device_epoch_ms, ntu, raw_mv} ] }
-- Sleeps 60 s after posting, then loops
+ESP32 simulator for /admin/command and /session
+- Polls GET /admin/command with X-Auth-Token
+- If "start": generates 60 readings (5 s apart) ALIGNED to real-time ticks
+- FAST mode: no waits (batch immediate) but timestamps t_i = t0 + i*5s
+- REAL mode: waits and samples at each real tick t_i; posts batch at the end
+- Sends POST /session with:
+    { "session_id", "readings": [ {seq, device_epoch_ms, ntu, raw_mv}, ... ] }
+- Sleeps post_sleep_sec after posting, then loops
 
-Usage examples:
+Usage:
   python esp32_sim.py --base http://localhost/info_sensor_turbidez/api --token YOUR_TOKEN --mode fast
   python esp32_sim.py --base http://localhost/info_sensor_turbidez/api --token YOUR_TOKEN --mode real --poll 3
 """
 
 import argparse
 import time
-import math
 import random
 import sys
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 import requests
+
+
+STEP_MS = 5000
+COUNT = 60  # 60 muestras -> 5 min (último ts = t0 + 59*5s)
 
 
 def now_epoch_ms() -> int:
     return int(time.time() * 1000)
 
 
-def generate_readings(
-    start_epoch_ms: int,
-    count: int = 60,
-    step_ms: int = 5000,
-    seed: int | None = None,
-    baseline_mv_range: Tuple[int, int] = (1200, 3000),
-    drift_mv_per_sample: int = 5,
+def align_next_tick_ms(ms: int, step_ms: int) -> int:
+    """Devuelve el próximo múltiplo de step_ms (si ms ya es múltiplo, retorna ms)."""
+    rem = ms % step_ms
+    return ms if rem == 0 else ms + (step_ms - rem)
+
+
+def synth_sample_values(rnd: random.Random, i: int,
+                        baseline_mv_range: Tuple[int, int] = (1200, 3000),
+                        drift_mv_per_sample: int = 5) -> Tuple[float, int]:
+    """
+    Genera (ntu, raw_mv) realistas para el índice i.
+    - raw_mv en [1200..3000], con drift leve y ruido
+    - NTU inversamente proporcional a mv, con wobble pequeño
+    """
+    min_mv, max_mv = baseline_mv_range
+    # baseline estable por ejecución (guardado en la instancia de Random)
+    base_mv = getattr(rnd, "_base_mv", None)
+    if base_mv is None:
+        base_mv = rnd.randint(min_mv + 50, max_mv - 50)
+        rnd._base_mv = base_mv
+
+    drift = i * rnd.choice([-drift_mv_per_sample, drift_mv_per_sample, 0])
+    noise = rnd.randint(-20, 20)
+    mv = base_mv + drift + noise
+    mv = max(min_mv, min(max_mv, mv))
+
+    # Mapeo inverso mv -> NTU
+    ntu_min, ntu_max = 0.2, 10.0
+    span_mv = max(1, (max_mv - min_mv))
+    frac = (max_mv - mv) / span_mv
+    ntu = ntu_min + frac * (ntu_max - ntu_min)
+    ntu += rnd.uniform(-0.05, 0.05)  # wobble
+    ntu = max(0.0, ntu)
+
+    return round(ntu, 3), int(round(mv))
+
+
+def generate_readings_fast_aligned(
+    start_epoch_ms_aligned: int,
+    count: int = COUNT,
+    step_ms: int = STEP_MS,
+    seed: Optional[int] = None,
 ) -> List[Dict]:
     """
-    Generate 'count' readings spaced by 'step_ms' in epoch ms.
-    raw_mv ~ [1200..3000] and ntu inversely related (high mV -> low NTU).
-    Adds small drift and noise to feel realistic.
+    Genera 'count' lecturas con timestamps t_i = t0 + i*step_ms (sin esperar).
     """
-    if seed is not None:
-        rnd = random.Random(seed)
-    else:
-        rnd = random
-
-    min_mv, max_mv = baseline_mv_range
-    # Choose a baseline within range
-    base_mv = rnd.randint(min_mv + 50, max_mv - 50)
-
+    rnd = random.Random(seed) if seed is not None else random
     readings = []
-    # Mapping: raw_mv in [min_mv, max_mv] -> ntu in [ntu_min, ntu_max] (inverse relation)
-    ntu_min, ntu_max = 0.2, 10.0
-
     for i in range(count):
-        # drift + small noise
-        drift = (i * rnd.choice([-drift_mv_per_sample, drift_mv_per_sample, 0]))
-        noise = rnd.randint(-20, 20)  # ±20 mV noise
-        mv = base_mv + drift + noise
-        mv = max(min_mv, min(max_mv, mv))
-
-        # inverse linear mapping to NTU
-        span_mv = max(1, (max_mv - min_mv))
-        frac = (max_mv - mv) / span_mv  # mv alto -> frac pequeño -> NTU bajo
-        ntu = ntu_min + frac * (ntu_max - ntu_min)
-
-        # a tiny random wobble to ntu
-        ntu += rnd.uniform(-0.05, 0.05)
-        ntu = max(0.0, ntu)
-
-        ts = start_epoch_ms + i * step_ms
+        ts = start_epoch_ms_aligned + i * step_ms
+        ntu, mv = synth_sample_values(rnd, i)
         readings.append({
             "seq": i,
             "device_epoch_ms": ts,
-            "ntu": round(ntu, 3),
-            "raw_mv": int(round(mv)),
+            "ntu": ntu,
+            "raw_mv": mv,
         })
+    return readings
+
+
+def collect_readings_real_time(
+    start_epoch_ms_aligned: int,
+    count: int = COUNT,
+    step_ms: int = STEP_MS,
+    seed: Optional[int] = None,
+    log_every: int = 10,
+) -> List[Dict]:
+    """
+    Toma lecturas en tiempo real, esperando a cada tick exacto t_i.
+    Si se llega tarde a un tick, no se duerme para ese i (se continúa).
+    """
+    rnd = random.Random(seed) if seed is not None else random
+    readings = []
+    print(f"[SIM] REAL sampling: start={start_epoch_ms_aligned} "
+          f"({time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(start_epoch_ms_aligned/1000))}Z), "
+          f"step={step_ms}ms, count={count}")
+
+    # Esperar al primer tick si estamos antes de t0
+    delay0 = (start_epoch_ms_aligned - now_epoch_ms()) / 1000.0
+    if delay0 > 0:
+        time.sleep(delay0)
+
+    for i in range(count):
+        t_i = start_epoch_ms_aligned + i * step_ms
+        delay = (t_i - now_epoch_ms()) / 1000.0
+        if delay > 0:
+            time.sleep(delay)
+        ntu, mv = synth_sample_values(rnd, i)
+        readings.append({
+            "seq": i,
+            "device_epoch_ms": t_i,  # ← SIEMPRE el tick exacto
+            "ntu": ntu,
+            "raw_mv": mv,
+        })
+        if log_every and i % log_every == 0:
+            print(f"[SIM]  collected {i}/{count} at {t_i}")
 
     return readings
 
 
 def poll_command(base_url: str, token: str, extra_params: dict | None = None, timeout: int = 10) -> dict:
     """
-    GET /command with X-Auth-Token; returns parsed JSON.
+    GET /admin/command  (nota: ruta /admin/command según tu frontend)
+    Esperado:
+      {"command":"start","session_id":123,"expires_at":"...Z"}  ó  {"command":"idle"}
     """
-    url = f"{base_url.rstrip('/')}/command"
+    url = f"{base_url.rstrip('/')}/admin/command"
     headers = {"X-Auth-Token": token}
     params = extra_params or {}
     r = requests.get(url, headers=headers, params=params, timeout=timeout)
@@ -93,7 +148,7 @@ def poll_command(base_url: str, token: str, extra_params: dict | None = None, ti
 
 def post_session(base_url: str, token: str, session_id: int, readings: List[Dict], timeout: int = 15) -> dict:
     """
-    POST /session with payload:
+    POST /session con:
     {
       "session_id": <id>,
       "readings": [
@@ -106,20 +161,14 @@ def post_session(base_url: str, token: str, session_id: int, readings: List[Dict
         "X-Auth-Token": token,
         "Content-Type": "application/json",
     }
-    payload = {
-        "session_id": session_id,
-        "readings": readings,
-    }
+    payload = {"session_id": session_id, "readings": readings}
     r = requests.post(url, headers=headers, json=payload, timeout=timeout)
-    # The API may return 201 or 204; we accept 2xx generally
     if r.status_code // 100 != 2:
-        # Try to surface API error
         try:
             print("POST /session error:", r.status_code, r.json(), file=sys.stderr)
         except Exception:
             print("POST /session error:", r.status_code, r.text[:500], file=sys.stderr)
         r.raise_for_status()
-    # In some cases API returns no JSON (204). Keep it robust:
     try:
         return r.json()
     except Exception:
@@ -136,9 +185,12 @@ def run_loop(
 ) -> None:
     """
     Main loop:
-      - poll GET /command every poll_sec when idle
-      - on "start": generate 60 readings then POST /session
-      - sleep post_sleep_sec, then resume polling
+      - poll GET /admin/command cada poll_sec cuando está idle
+      - on "start": genera 60 lecturas alineadas a ticks de 5s
+            FAST: sin esperar (batch inmediato)
+            REAL: espera en tiempo real cada tick; postea al final
+      - POST /session
+      - sleep post_sleep_sec, y vuelve a hacer polling
     """
     assert mode in ("fast", "real"), "mode must be 'fast' or 'real'"
 
@@ -153,45 +205,42 @@ def run_loop(
                 params["device_id"] = include_device_id_param
 
             cmd = poll_command(base_url, token, extra_params=params)
-            # Expected: {"command":"start","session_id":123,"expires_at":"...Z"} or {"command":"idle"}
-            command = cmd.get("command")
-            print(f"[SIM] /command -> {cmd}")
+            print(f"[SIM] /admin/command -> {cmd}")
 
+            command = cmd.get("command")
             if command == "start":
                 session_id = int(cmd["session_id"])
-                # generate readings
-                start_ms = now_epoch_ms()
-                readings = generate_readings(start_ms, count=60, step_ms=5000)
+
+                # t0 = próximo tick de 5 s (alineado al reloj real)
+                now_ms = now_epoch_ms()
+                t0 = align_next_tick_ms(now_ms, STEP_MS)
 
                 if mode == "real":
-                    # In real mode we wait 5s as if we were sampling live,
-                    # but we still send the batch at the end (like your API expects).
-                    print("[SIM] Generating 60 samples with real 5s waits (~5 minutes)...")
-                    for i in range(60):
-                        if i > 0:
-                            time.sleep(5)
-                        # Optionally print a tiny live log
-                        if i % 10 == 0:
-                            print(f"[SIM]  collected {i}/60 ...")
-                    # Rebuild with fresh timestamps aligned to now
-                    start_ms = now_epoch_ms()
-                    readings = generate_readings(start_ms, count=60, step_ms=5000)
+                    print("[SIM] REAL mode: sampling aligned 5s ticks (~5 minutes total)...")
+                    readings = collect_readings_real_time(t0, count=COUNT, step_ms=STEP_MS)
+                else:
+                    print("[SIM] FAST mode: generating aligned timestamps without waiting...")
+                    readings = generate_readings_fast_aligned(t0, count=COUNT, step_ms=STEP_MS)
 
-                # Post the batch
-                print(f"[SIM] Posting 60 readings to /session for session_id={session_id} ...")
+                # Logs de control
+                if readings:
+                    print(f"[SIM] First ts: {readings[0]['device_epoch_ms']}  "
+                          f"Last ts:  {readings[-1]['device_epoch_ms']}")
+
+                # POST batch
+                print(f"[SIM] Posting {len(readings)} readings to /session for session_id={session_id} ...")
                 res = post_session(base_url, token, session_id, readings)
                 print(f"[SIM] POST /session -> {res}")
 
-                # Sleep to allow API/DB to close the session (as per your flow)
+                # Dar tiempo al backend para cerrar sesión
                 print(f"[SIM] Sleeping {post_sleep_sec}s to allow session to close...")
                 time.sleep(post_sleep_sec)
 
             else:
-                # idle or unknown -> keep polling
+                # idle u otro -> seguir consultando
                 time.sleep(poll_sec)
 
         except requests.HTTPError as e:
-            # Surface HTTP errors with potential JSON body
             try:
                 print("[SIM] HTTPError:", e.response.status_code, e.response.json(), file=sys.stderr)
             except Exception:
@@ -212,11 +261,12 @@ def run_loop(
 
 
 def main():
-    ap = argparse.ArgumentParser(description="ESP32 turbidity simulator (GET /command, POST /session)")
+    ap = argparse.ArgumentParser(description="ESP32 turbidity simulator (GET /admin/command, POST /session)")
     ap.add_argument("--base", required=True, help="API base URL, e.g. http://localhost/info_sensor_turbidez/api")
     ap.add_argument("--token", required=True, help="X-Auth-Token value for the device")
-    ap.add_argument("--mode", choices=["fast", "real"], default="fast", help="fast = no wait; real = wait 5s per sample (~5min)")
-    ap.add_argument("--poll", type=int, default=5, help="seconds between GET /command polls when idle")
+    ap.add_argument("--mode", choices=["fast", "real"], default="fast",
+                    help="fast = no wait; real = wait 5s per sample (~5min)")
+    ap.add_argument("--poll", type=int, default=5, help="seconds between GET /admin/command polls when idle")
     ap.add_argument("--post-sleep", type=int, default=60, help="seconds to sleep after POST /session")
     ap.add_argument("--device-id-param", default=None,
                     help="(Optional) include ?device_id=<id> in requests if your auth still needs it")

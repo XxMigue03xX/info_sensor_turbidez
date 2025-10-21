@@ -1,7 +1,10 @@
 /* timeSeriesChart – envoltorio minimal para Chart.js 3/4  */
 /* Requiere: chart.js, chartjs-plugin-zoom, chartjs-adapter-luxon           */
 
-// ── Registro explícito del plugin de zoom ──────────────────────────────
+/* ── Luxon en español ───────────────────── */
+luxon.Settings.defaultLocale = "es";
+luxon.Settings.defaultZone = "America/Bogota"; // ← mostrar SIEMPRE en hora COL
+
 try {
   // CDN global: la librería expone ChartZoom o chartjsPluginZoom
   const zoomPlugin = window.ChartZoom || window.chartjsPluginZoom;
@@ -16,8 +19,9 @@ try {
 luxon.Settings.defaultLocale = "es";
 
 /* --- Configuración global ---------- */
-const MIN_RANGE_MS = 10 * 60 * 1000; // 10 min — evita que el zoom deje la gráfica vacía
-const SPAN_GAP_MS    = 60 * 60 * 1000;       // 1 hora → puente máximo
+/* minRange base pequeño; se ajustará dinámicamente a una fracción del span */
+const BASE_MIN_RANGE_MS = 250;                 // 250 ms
+const SPAN_GAP_MS       = 60 * 60 * 1000;      // 1 hora → puente máximo
 
 /* ─── Plugin: DayBackground ───────────────────────────────────── */
 const dayBackgroundPlugin = {
@@ -25,15 +29,10 @@ const dayBackgroundPlugin = {
   beforeDraw(chart, _args, opts) {
     if (!opts.enabled) return;
 
-    const {
-      ctx,
-      chartArea,
-      scales: { x },
-    } = chart;
+    const { ctx, chartArea, scales: { x } } = chart;
     const min = x.getUserBounds().min;
     const max = x.getUserBounds().max;
 
-    // empieza en 00:00 del primer día visible
     let cur = luxon.DateTime.fromMillis(min).startOf("day");
     const end = luxon.DateTime.fromMillis(max).endOf("day");
 
@@ -45,17 +44,10 @@ const dayBackgroundPlugin = {
     while (cur < end) {
       const next = cur.plus({ days: 1 });
       const xStart = x.getPixelForValue(cur.toMillis());
-      const xEnd = x.getPixelForValue(next.toMillis());
+      const xEnd   = x.getPixelForValue(next.toMillis());
 
-      ctx.fillStyle = toggle
-        ? opts.colorB ?? "#ced4da" // gris medio
-        : opts.colorA ?? "#f8f9fa"; // gris muy claro
-      ctx.fillRect(
-        xStart,
-        chartArea.top,
-        xEnd - xStart,
-        chartArea.bottom - chartArea.top
-      );
+      ctx.fillStyle = toggle ? (opts.colorB ?? "#ced4da") : (opts.colorA ?? "#f8f9fa");
+      ctx.fillRect(xStart, chartArea.top, xEnd - xStart, chartArea.bottom - chartArea.top);
 
       toggle = !toggle;
       cur = next;
@@ -63,45 +55,37 @@ const dayBackgroundPlugin = {
     ctx.restore();
   },
 };
-
-/* Registrar (una sola vez) si aún no existe */
-if (!Chart.registry.plugins.get("dayBackground"))
-  Chart.register(dayBackgroundPlugin);
+if (!Chart.registry.plugins.get("dayBackground")) Chart.register(dayBackgroundPlugin);
 
 /* ── Plugin: AdaptiveTimeUnit ──────────────────────────
-   Cambia automáticamente de “hour” a “minute” cuando
-   el rango visible en X es ≤ 1 hora.               */
+   Añade "second". Cambia de unidad según el span visible. */
 const adaptiveTimeUnitPlugin = {
   id: "adaptiveTimeUnit",
   beforeUpdate(chart) {
     const x = chart.scales.x;
     if (!x) return;
 
-    const optX = chart.options.scales.x;      // ← NUEVO
-    /* Usa primero min/max del *options* (pueden haber cambiado justo antes)
-       y cae al valor de la escala si aún no se tocaron                     */
-    const min = optX.min ?? x.min;
-    const max = optX.max ?? x.max;
+    const optX = chart.options.scales.x;
+    const min  = optX.min ?? x.min;
+    const max  = optX.max ?? x.max;
     const span = max - min;
 
-    const timeOpt = optX.time;               // la misma referencia
-
-    /* ― Elección de unidad y paso ― */
+    const timeOpt = optX.time;
     let unit, step;
-    if (span <= 60 * 60 * 1000) {
-      // ≤ 1 h
+    if (span <= 2 * 60 * 1000) {         // ≤ 2 min
+      unit = "second";
+      // paso fino si ventana < 30 s
+      step = span <= 30 * 1000 ? 1 : 5;  // 1 s o 5 s
+    } else if (span <= 60 * 60 * 1000) { // ≤ 1 h
       unit = "minute";
-      step = 5; // 5 min
+      step = 5;
     } else if (span <= 2 * 24 * 60 * 60 * 1000) {
-      // ≤ 2 d
       unit = "hour";
       step = 1;
     } else if (span <= 90 * 24 * 60 * 60 * 1000) {
-      // ≤ 3 m
       unit = "day";
       step = 1;
     } else if (span <= 2 * 365 * 24 * 60 * 60 * 1000) {
-      // ≤ 2 a
       unit = "month";
       step = 1;
     } else {
@@ -115,20 +99,17 @@ const adaptiveTimeUnitPlugin = {
     }
   },
 };
-
-/* Registrar (una sola vez) si aún no existe */
-if (!Chart.registry.plugins.get("adaptiveTimeUnit"))
-  Chart.register(adaptiveTimeUnitPlugin);
+if (!Chart.registry.plugins.get("adaptiveTimeUnit")) Chart.register(adaptiveTimeUnitPlugin);
 
 export class timeSeriesChart {
   constructor(
     canvas,
     {
       label,
-      color,
-      thresholds = null, // { tMin, tMax, hMin, hMax } según el gráfico
-      maxPoints = Infinity, // solo se aplica en tiempo real
-      highlightDays = false, // <— NUEVO
+      color = "#0d6efd",
+      thresholds = null,
+      maxPoints = Infinity,
+      highlightDays = false,
     } = {}
   ) {
     this._canvas = canvas;
@@ -147,30 +128,24 @@ export class timeSeriesChart {
 
   /* ---------- API pública ---------- */
 
-  /* --- Ventana X fija + límites de zoom --- */
   setWindow(min, max) {
     const o = this._chart.options;
     o.scales.x.min = min;
     o.scales.x.max = max;
 
-    /* solo movemos los topes de la ventana, dejamos intacto minRange */
     const lim = o.plugins.zoom.limits?.x;
     if (lim) {
       lim.min = min;
       lim.max = max;
-      // lim.minRange permanece ➝ el zoom-in mínimo sigue activo
+      // minRange lo ajusta setWindowWithUnit
     }
     this._chart.update("none");
   }
 
   clear() {
-    /* ➊ Nos quedamos solo con el dataset principal */
     this._chart.data.datasets = [this._chart.data.datasets[0]];
     this._chart.data.datasets[0].data = [];
-
-    /* ➋ Re-crear umbrales actuales (si existen) */
     if (this._thresholds) this._injectThresholdLines(this._thresholds);
-
     this._chart.update("none");
   }
 
@@ -188,9 +163,7 @@ export class timeSeriesChart {
     this._chart.update("none");
   }
 
-  get chart() {
-    return this._chart;
-  }
+  get chart() { return this._chart; }
 
   /* ---------- Helpers internos ---------- */
   _makeMainDataset(label, color) {
@@ -201,10 +174,10 @@ export class timeSeriesChart {
       data: [],
       parsing: false,
       borderWidth: 2,
-      pointRadius: 3,
-      tension: 0.3,
+      pointRadius: 2,
+      tension: 0.25,
       fill: false,
-      spanGaps: SPAN_GAP_MS, // ← UNE huecos ≤ 1 h
+      spanGaps: SPAN_GAP_MS,
     };
   }
 
@@ -213,64 +186,58 @@ export class timeSeriesChart {
       responsive: true,
       maintainAspectRatio: false,
       layout: { padding: 12 },
-      animation: false, // ← NEW: sin animación
-      spanGaps: SPAN_GAP_MS, // ← une huecos ≤ 1 h, rompe los mayores,
+      animation: false,
+      spanGaps: SPAN_GAP_MS,
       plugins: {
         legend: { labels: { color: "#343a40" } },
         tooltip: {
           callbacks: {
             title: (items) => {
               const ms = items[0].parsed.x;
-              const dt =
-                luxon.DateTime.fromMillis(ms).setZone("America/Bogota");
-              return dt.isValid ? dt.toFormat("dd LLL h:mm a") : "—";
+              const dt = luxon.DateTime.fromMillis(ms).setZone("America/Bogota");
+              return dt.isValid ? dt.toFormat("dd LLL yyyy · HH:mm:ss") : "—";
             },
           },
         },
         zoom: {
-          /* ─ Zoom (rueda + pellizco) ─ */
           zoom: {
             wheel: { enabled: true },
             pinch: { enabled: true },
             mode: "x",
           },
           pan: { enabled: false },
-          // Límites globales
-          limits: {
-            x: { minRange: MIN_RANGE_MS },
-          },
+          limits: { x: { minRange: BASE_MIN_RANGE_MS } }, // dinámico en setWindowWithUnit
         },
         dayBackground: {
-          // ← pasa la flag al plugin
           enabled: highlightDays,
           colorA: "#6c757d",
           colorB: "#adb5bd",
-          opacity: 0.15, // ≈ 15 %
+          opacity: 0.15,
         },
       },
       scales: {
         x: {
           type: "time",
-          /* ── Configuración de etiquetas ── */
           time: {
-            unit: "hour",
+            unit: "second",
             stepSize: 1,
             displayFormats: {
-              hour: "h:mm a",
-              minute: "h:mm a",
-              day: "dd LLL", // 01 Ene
-              month: "LLL yyyy", // Ene 2025
-              year: "yyyy", // 2025
+              second: "HH:mm:ss",
+              minute: "HH:mm",
+              hour:   "HH:mm",
+              day:    "dd LLL",
+              month:  "LLL yyyy",
+              year:   "yyyy",
             },
-            tooltipFormat: "dd LLL · h:mm a",
+            tooltipFormat: "dd LLL yyyy · HH:mm:ss",
           },
           ticks: {
-            autoSkip: true, // ← Chart.js omitirá si aún hay demasiadas
-            maxRotation: 0, // ← evita rotación vertical
+            autoSkip: true,
+            maxRotation: 0,
             color: "#343a40",
           },
           grid: { color: "#dee2e6" },
-          title: { display: true, text: "Hora", color: "#6c757d" },
+          title: { display: true, text: "Tiempo", color: "#6c757d" },
         },
         y: {
           grid: { color: "#e9ecef" },
@@ -282,15 +249,8 @@ export class timeSeriesChart {
   }
 
   _injectThresholdLines(th) {
-    /* ➊ Persistimos los nuevos valores para futuros clear() */
     this._thresholds = th;
-
-    /* ➋ Borramos cualquier línea de umbral previa */
-    this._chart.data.datasets = this._chart.data.datasets.filter(
-      (ds) => !ds.isThreshold
-    );
-
-    /* ➌ Volvemos a insertar las líneas necesarias */
+    this._chart.data.datasets = this._chart.data.datasets.filter(ds => !ds.isThreshold);
     const add = (val, lbl) => ({
       label: lbl,
       data: [],
@@ -299,36 +259,25 @@ export class timeSeriesChart {
       borderWidth: 1.8,
       pointRadius: 0,
       fill: false,
-      spanGaps: true, // ← Siempre dibuja la línea completa
+      spanGaps: true,
       clip: true,
       borderCapStyle: "round",
       order: 9_999,
       isThreshold: true,
       _y: val,
     });
-    if (th.tMin !== undefined)
-      this._chart.data.datasets.push(add(th.tMin, "Min"));
-    if (th.tMax !== undefined)
-      this._chart.data.datasets.push(add(th.tMax, "Max"));
-    if (th.hMin !== undefined)
-      this._chart.data.datasets.push(add(th.hMin, "Min"));
-    if (th.hMax !== undefined)
-      this._chart.data.datasets.push(add(th.hMax, "Max"));
+    if (th.tMin !== undefined) this._chart.data.datasets.push(add(th.tMin, "Min"));
+    if (th.tMax !== undefined) this._chart.data.datasets.push(add(th.tMax, "Max"));
+    if (th.hMin !== undefined) this._chart.data.datasets.push(add(th.hMin, "Min"));
+    if (th.hMax !== undefined) this._chart.data.datasets.push(add(th.hMax, "Max"));
   }
 
   _updateThresholdLines() {
     const main = this._chart.data.datasets[0].data;
     if (!main.length) return;
-    const minX = main[0].x,
-      maxX = main[main.length - 1].x;
-
-    this._chart.data.datasets.forEach((ds) => {
-      if (ds.isThreshold) {
-        ds.data = [
-          { x: minX, y: ds._y },
-          { x: maxX, y: ds._y },
-        ];
-      }
+    const minX = main[0].x, maxX = main[main.length - 1].x;
+    this._chart.data.datasets.forEach(ds => {
+      if (ds.isThreshold) ds.data = [{ x: minX, y: ds._y }, { x: maxX, y: ds._y }];
     });
   }
 
@@ -337,52 +286,44 @@ export class timeSeriesChart {
     while (arr.length > this._maxPoints) arr.shift();
   }
 
-  /* Cambia la unidad temporal del eje X y refresca sin animación */
   setTimeUnit(unit = "hour", skipUpdate = false) {
     const x = this._chart.options.scales.x;
     x.time.unit = unit;
-    x.time.stepSize = unit === "minute" ? 5 : unit === "hour" ? 1 : 1; // day / month / year → 1
+    x.time.stepSize = unit === "second" ? 1 : unit === "minute" ? 5 : 1;
     if (!skipUpdate) this._chart.update("none");
   }
 
-  /* Wrapper auxiliar para que el caller elija la unidad
-     y luego establezca la ventana                                       */
-  setWindowWithUnit(minTs, maxTs, unit = "hour") {
-    /* 1️⃣  Establece la ventana **sin** actualizar aún */
+  /* Establece ventana y ajusta minRange de zoom a una fracción del span */
+  setWindowWithUnit(minTs, maxTs, unit = "second") {
+    const span = Math.max(0, maxTs - minTs);
+    const dynMinRange = Math.max(BASE_MIN_RANGE_MS, Math.floor(span * 0.1)); // 10% del span (mín 250 ms)
+
     const o = this._chart.options;
     o.scales.x.min = minTs;
     o.scales.x.max = maxTs;
+
     const lim = o.plugins.zoom.limits?.x;
     if (lim) {
       lim.min = minTs;
       lim.max = maxTs;
+      lim.minRange = dynMinRange;
     }
 
-    /* 2️⃣  Fija la unidad y realiza **un único** update */
     this.setTimeUnit(unit, /*skipUpdate=*/ true);
     this._chart.update("none");
   }
 
-  /* Permite cambiar el límite dinámicamente */
   setMaxPoints(val = Infinity) {
     this._maxPoints = Number.isFinite(val) ? val : Infinity;
   }
 
-  /* Actualiza dinámicamente el umbral para unir puntos           */
   setSpanGap(ms) {
-    this._chart.data.datasets.forEach((ds) => {
-      if (!ds.isThreshold) ds.spanGaps = ms;
-    });
-    /* No hace falta update: lo llamaremos antes de setWindowWithUnit */
+    this._chart.data.datasets.forEach(ds => { if (!ds.isThreshold) ds.spanGaps = ms; });
   }
 
   updateThresholdRange(minX, maxX) {
-    this._chart.data.datasets.forEach((ds) => {
-      if (ds.isThreshold)
-        ds.data = [
-          { x: minX, y: ds._y },
-          { x: maxX, y: ds._y },
-        ];
+    this._chart.data.datasets.forEach(ds => {
+      if (ds.isThreshold) ds.data = [{ x: minX, y: ds._y }, { x: maxX, y: ds._y }];
     });
   }
 }

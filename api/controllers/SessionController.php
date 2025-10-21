@@ -15,7 +15,7 @@ final class SessionController
     {
         $body = read_json();
 
-        $duration = (int) ($body['duration_sec'] ?? 300);
+        $duration = (int) ($body['duration_sec'] ?? 330);
         if ($duration < 60 || $duration > 600) {
             sendResponse(['error' => 'duration_sec inválido (60..600)'], 400);
         }
@@ -126,7 +126,7 @@ final class SessionController
      */
     public static function list(PDO $pdo): never
     {
-        $deviceId = $_GET['filter_device_id'] ?? null; // para listar sesiones de otro device, si aplica
+        $deviceId = $_GET['filter_device_id'] ?? 'esp32-A'; // para listar sesiones de otro device, si aplica
         if ($deviceId !== null && $deviceId === '')
             $deviceId = null;
 
