@@ -1,27 +1,115 @@
-<div class="row">
+<!-- Caja 1: Filtro de sesiones (Histórico) -->
+<div class="row mb-4">
   <div class="col-12">
-    <div class="card shadow-sm">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <h3 class="card-title"><i class="fas fa-chart-line mr-1"></i>Serie de Turbidez</h3>
-        <div>
-          <button id="btn-hist-refresh" class="btn btn-sm btn-outline-primary"><i class="fas fa-sync-alt mr-1"></i>Actualizar</button>
+    <div class="card shadow">
+      <div class="card-header">
+        <h3 class="card-title">
+          <i class="fas fa-history"></i>Histórico de sesiones
+        </h3>
+        <div class="header-actions">
+          <!-- Acción secundaria opcional (por ejemplo, recargar listado) -->
+          <button id="btn-reload-sessions" class="btn btn-outline-primary btn-sm">
+            <i class="fas fa-sync-alt"></i>Recargar listado
+          </button>
+        </div>
+      </div>
+
+      <div class="card-body">
+        <div class="row align-items-center justify-content-between">
+          <!-- Select con todas las sesiones (id + fin) -->
+          <div class="col-md-7 mb-3 mb-md-0">
+            <label for="select-session" class="mb-1 font-weight-semibold">Selecciona una sesión</label>
+            <select id="select-session" class="form-control">
+              <!-- Se rellena desde JS con: value=session_id, text='#<id> — finalizada <YYYY-MM-DD HH:mm:ss>' -->
+            </select>
+            <small class="form-text text-muted">
+              Lista de sesiones culminadas. El texto muestra el ID y la fecha/hora de finalización.
+            </small>
+          </div>
+
+          <!-- Cargar sesión seleccionada -->
+          <div class="col-md-2">
+            <button id="btn-load-selected" class="btn btn-primary btn-block">
+              <i class="fas fa-chart-line mr-1"></i>Ver sesión
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card-footer text-muted small">
+        <span id="historic-footer-note">Selecciona o busca una sesión para ver su gráfico y estadísticos.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Caja 2: Gráfico + Estadísticos de la última sesión culminada (INTACTA) -->
+<div class="row">
+  <!-- Gráfico -->
+  <div class="col-lg-8 mb-4 mb-lg-0">
+    <div class="card shadow">
+      <div class="card-header">
+        <h3 class="card-title">
+          <i class="fas fa-chart-line"></i>NTU — Última sesión culminada
+        </h3>
+        <div class="header-actions">
+          <button id="btn-reload-last" class="btn btn-outline-primary btn-sm">
+            <i class="fas fa-sync-alt"></i>Recargar
+          </button>
         </div>
       </div>
       <div class="card-body">
-        <div style="height: 320px">
-          <canvas id="chart-turbidity"></canvas>
+        <div style="height: 380px;">
+          <canvas id="chart-last-session"></canvas>
         </div>
+      </div>
+      <div class="card-footer text-muted small">
+        <span id="last-session-meta">—</span>
       </div>
     </div>
   </div>
 
-  <div class="col-12">
-    <div class="card shadow-sm">
+  <!-- Estadísticos -->
+  <div class="col-lg-4">
+    <div class="card shadow h-80">
       <div class="card-header">
-        <h3 class="card-title"><i class="fas fa-list mr-1"></i>Últimas lecturas</h3>
+        <h3 class="card-title mb-0">
+          <i class="fas fa-calculator mr-2"></i>Estadísticos de NTU
+        </h3>
       </div>
+
       <div class="card-body">
-        <ul id="history-list" class="list-unstyled mb-0"></ul>
+        <div class="stat-grid">
+          <div class="stat">
+            <div class="label"><i class="fas fa-arrows-alt-h"></i>Media</div>
+            <div id="stat-mean" class="value">—</div>
+          </div>
+
+          <div class="stat">
+            <div class="label"><i class="fas fa-ruler-horizontal"></i>Mediana</div>
+            <div id="stat-median" class="value">—</div>
+          </div>
+
+          <div class="stat">
+            <div class="label"><i class="fas fa-bullseye"></i>Moda</div>
+            <div id="stat-mode" class="value">—</div>
+          </div>
+
+          <div class="stat">
+            <div class="label"><i class="fas fa-wave-square"></i>Desv. estándar</div>
+            <div id="stat-stddev" class="value">—</div>
+          </div>
+
+          <div class="stat stat-wide">
+            <div class="label"><i class="fas fa-arrows-alt-v"></i>Rango</div>
+            <div id="stat-range" class="value">—</div>
+          </div>
+        </div>
+
+        <hr class="mt-3 mb-2">
+        <p class="small text-muted mb-0">
+          Calculado sobre <span id="stat-count">—</span> mediciones (NTU) de la última sesión culminada.
+        </p>
       </div>
     </div>
   </div>

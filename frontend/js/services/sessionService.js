@@ -7,7 +7,7 @@ const sessionService = {
    * GET /session
    * @returns {Promise<GetCommandResponse>}
   */
-  async getLastSession() {
+  async getAllSessions() {
     return apiFetch("/session", {
       method: "GET",
       headers: { Accept: "application/json" },
@@ -18,8 +18,8 @@ const sessionService = {
    * GET /session/{id}
    * @returns {Promise<GetCommandResponse>}
   */
-  async getLastSession(id) {
-    return apiFetch(`/session/${id}}`, {
+  async getSessionById(id) {
+    return apiFetch(`/session/${id}`, {
       method: "GET",
       headers: { Accept: "application/json" },
     });
@@ -32,17 +32,6 @@ const sessionService = {
   async getLastSession() {
     return apiFetch("/session/last", {
       method: "GET",
-      headers: { Accept: "application/json" },
-    });
-  },
-
-  /**
-   * POST /activate
-   * @returns {Promise<ActivateSessionResponse>}
-   */
-  async activate() {
-    return apiFetch("/activate", {
-      method: "POST",
       headers: { Accept: "application/json" },
     });
   },

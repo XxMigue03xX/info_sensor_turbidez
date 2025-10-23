@@ -10,7 +10,7 @@ let started = false;
 
 function parseHash() {
   const raw = (location.hash || "").replace(/^#\/?/, "");
-  const [view] = raw.split("?"); // sin query por ahora
+  const [view] = raw.split("?");
   return view || "inicio";
 }
 
