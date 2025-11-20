@@ -235,6 +235,13 @@ final class MeasurementModel
         ];
     }
 
+    public function countBySessionId(int $sessionId): int
+    {
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM measurement WHERE session_id = ?');
+        $stmt->execute([$sessionId]);
+        return (int) $stmt->fetchColumn();
+    }
+
     /** Formatea DateTime(UTC) a 'Y-m-d H:i:s.v' (milisegundos). */
     public static function fmtDtMs(DateTimeInterface $dt): string
     {

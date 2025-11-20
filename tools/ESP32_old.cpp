@@ -10,8 +10,8 @@
 
 /***** CONFIGURACIÓN *****/
 // --- WiFi ---
-const char* WIFI_SSID = "Nada que";
-const char* WIFI_PASS = "Ver aqui";
+const char* WIFI_SSID = "Nada que"; 
+const char* WIFI_PASS = "Ver aqui"; 
 
 // --- API ---
 // Ej.: "http://192.168.1.50/info_sensor_turbidez/api"  (NO usar localhost desde el ESP32)
@@ -23,7 +23,7 @@ String DEVICE_ID_PARAM = ""; // opcional, p.ej. "esp32-lab" (vacío para omitir)
 static const uint32_t STEP_MS = 5000;      // cada 5 s
 static const uint16_t COUNT   = 60;        // 60 lecturas -> ~5 min
 static const uint16_t pollSec = 5;         // polling cuando idle
-static const uint16_t postSleepSec = 30;   // espera después de terminar las 60 lecturas
+static const uint16_t postSleepSec = 60;   // espera después de POST /session
 
 // --- ADC / Sensor ---
 static const int PIN_TURBIDITY = 34; // ADC1_6 (GPIO34 es sólo entrada, recomendado)
@@ -56,11 +56,8 @@ void sleepUntil(uint64_t targetMs) {
     if (now + 2 >= targetMs) break; // margen 2 ms
     uint64_t diff = targetMs - now;
     // dividir en porciones para no bloquear watchdog
-    if (diff > 100) {
-      delay( (diff > 1000) ? 100 : (uint32_t)diff );
-    } else {
-      delay((uint32_t)diff);
-    }
+    if (diff > 100) delay( (diff > 1000) ? 100 : (uint32_t)diff );
+    else delay((uint32_t)diff);
   }
 }
 
@@ -136,9 +133,12 @@ uint16_t analogReadMilliVoltsAveraged(int pin, uint8_t samples) {
 }
 
 // Polinomio típico de SEN0189. Ajuste con su propia calibración si es necesario.
+// mv: milivoltios medidos en el pin del ESP32 (después de divisor si existe)
+// v: voltios (double)
 double turbidityFromMilliVolts(uint16_t mv) {
   double v = mv / 1000.0; // a voltios
-  // Si su sensor se alimenta a 5V y usa divisor, ajuste el factor.
+  // Si su sensor se alimenta a 5V y usa divisor (ej. R1=10k, R2=10k), la salida del sensor
+  // se reduce a la mitad. Entonces la tensión real del sensor sería v*2. Ajuste si aplica.
   const double DIVIDER_GAIN = 1.5; // ponga 2.0 si usó divisor 1:1, etc.
   double vs = v * DIVIDER_GAIN;
   double ntu = -1120.4 * vs * vs + 5742.3 * vs - 4352.9;
@@ -147,7 +147,7 @@ double turbidityFromMilliVolts(uint16_t mv) {
   return ntu;
 }
 
-/***** LÓGICA /command + /session/reading *****/
+/***** LÓGICA /command + /session *****/
 String buildCommandURL() {
   String url = BASE_URL;
   if (url.endsWith("/")) url.remove(url.length() - 1);
@@ -158,10 +158,10 @@ String buildCommandURL() {
   return url;
 }
 
-String buildSessionReadingURL() {
+String buildSessionURL() {
   String url = BASE_URL;
   if (url.endsWith("/")) url.remove(url.length() - 1);
-  url += "/session/reading";
+  url += "/session";
   return url;
 }
 
@@ -175,41 +175,27 @@ bool pollCommand(JsonDocument& outCmd) {
   return true;
 }
 
-/**
- * POST /session/reading con UNA lectura:
- * {
- *   "session_id": <id>,
- *   "seq": <0..59>,
- *   "device_epoch_ms": "<ms>",
- *   "ntu": <double>,
- *   "raw_mv": <int>
- * }
- */
-bool postSingleReading(int sessionId, uint16_t seq, uint64_t ti, double ntu, uint16_t mv) {
+bool postSessionBatch(int sessionId, JsonArray readings) {
   ensureWiFi();
 
+  // Capacidad suficiente para:
+  // { "session_id": ..., "readings": [ {4 campos} x COUNT ] }
   const size_t CAP =
-    JSON_OBJECT_SIZE(5) + 64; // session_id, seq, device_epoch_ms, ntu, raw_mv
+    JSON_OBJECT_SIZE(2) +                  // session_id + readings
+    JSON_ARRAY_SIZE(COUNT) +               // cabecera del array
+    COUNT * JSON_OBJECT_SIZE(4) +          // cada objeto: seq, device_epoch_ms, ntu, raw_mv
+    256;                                   // margen de seguridad
 
   DynamicJsonDocument doc(CAP);
   doc["session_id"] = sessionId;
-  doc["seq"] = seq;
-
-  // device_epoch_ms como string (seguro para PHP is_numeric + cast a int)
-  char tsbuf[24];
-  snprintf(tsbuf, sizeof(tsbuf), "%llu", (unsigned long long)ti);
-  doc["device_epoch_ms"] = tsbuf;
-
-  doc["ntu"] = ntu;
-  doc["raw_mv"] = (int)mv;
+  doc["readings"] = readings;              // copia profunda desde readingsDoc
 
   String payload;
   serializeJson(doc, payload);
 
-  String url = buildSessionReadingURL();
+  String url = buildSessionURL();
   Serial.print("POST ");
   Serial.print(url);
-  Serial.print(" seq="); Serial.print(seq);
   Serial.print(" bytes=");
   Serial.println(payload.length());
 
@@ -248,7 +234,7 @@ void setup() {
 
 /***** LOOP PRINCIPAL *****/
 void loop() {
-  // 1) Polling a /command
+  // 1) Polling a command
   DynamicJsonDocument cmd(1024);
   if (!pollCommand(cmd)) {
     delay(pollSec * 1000);
@@ -275,41 +261,50 @@ void loop() {
   Serial.print("Sampling REAL, t0="); Serial.println((unsigned long)t0);
 
   // Si llegamos antes de t0, esperar.
-  if (t0 > nowEpochMs()) {
-    sleepUntil(t0);
-  }
+  if (t0 > nowEpochMs()) sleepUntil(t0);
 
   // 3) Recolectar 60 lecturas en ticks exactos de 5 s
+  // Pre-alocar contenedor JSON para lecturas
+  const size_t CAP = JSON_ARRAY_SIZE(COUNT) + COUNT * JSON_OBJECT_SIZE(4) + 1024;
+  DynamicJsonDocument readingsDoc(CAP);
+  JsonArray readings = readingsDoc.to<JsonArray>();
+
   for (uint16_t i = 0; i < COUNT; ++i) {
     uint64_t ti = t0 + (uint64_t)i * (uint64_t)STEP_MS;
 
     // Espera activa hasta el tick
     uint64_t nowMsi = nowEpochMs();
-    if (ti > nowMsi) {
-      sleepUntil(ti);
-    }
+    if (ti > nowMsi) sleepUntil(ti);
 
     // Lectura del sensor
     uint16_t mv = analogReadMilliVoltsAveraged(PIN_TURBIDITY, ADC_SAMPLES);
     double ntu = turbidityFromMilliVolts(mv);
 
-    if (i % 10 == 0) {
-      Serial.printf("  [%2u/%2u] t=%llu mv=%u -> NTU=%.2f\n",
-                    i, COUNT, (unsigned long long)ti, mv, ntu);
-    }
+    // Empaquetar sample
+    JsonObject o = readings.add<JsonObject>();
+    o["seq"] = i;
+    // IMPORTANTE: device_epoch_ms en milisegundos (usar uint64->string para no perder precisión en JSON)
+    char tsbuf[24];
+    snprintf(tsbuf, sizeof(tsbuf), "%llu", (unsigned long long)ti);
+    o["device_epoch_ms"] = tsbuf;
+    o["ntu"] = ntu;    // double -> JSON
+    o["raw_mv"] = (int)mv;
 
-    // 4) Enviar UNA lectura a /session/reading
-    bool ok = postSingleReading(sessionId, i, ti, ntu, mv);
-    if (!ok) {
-      Serial.println("POST /session/reading FAIL para esta lectura.");
-      // Para proyecto académico, continuamos con las siguientes
-      // Si quisieras ser más estricto, podrías hacer un break aquí.
+    if (i % 10 == 0) {
+      Serial.printf("  [%2u/%2u] t=%llu mv=%u -> NTU=%.2f\n", i, COUNT, (unsigned long long)ti, mv, ntu);
     }
   }
 
-  // 5) Dar tiempo al backend para cerrar la sesión y actualizar estadísticas
+  // 4) POST /session con el batch
+  if (postSessionBatch(sessionId, readings)) {
+    Serial.println("POST /session OK");
+  } else {
+    Serial.println("POST /session FAIL");
+  }
+
+  // 5) Dar tiempo al backend para cerrar la sesión
   Serial.printf("Durmiendo %us para cierre de sesión...\n", postSleepSec);
-  for (uint16_t s = 0; s < postSleepSec; ++s) {
+  for (uint16_t s = 0; s < postSleepSec; ++s){
     delay(1000);
   }
 }

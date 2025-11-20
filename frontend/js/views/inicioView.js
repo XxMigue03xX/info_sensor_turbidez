@@ -6,8 +6,6 @@ import commandService from "../services/commandService.js";
 import sessionService from "../services/sessionService.js";
 import { timeSeriesChart } from "../components/timeSeriesChart.js";
 
-let ntuChart; // instancia de timeSeriesChart
-
 export async function init() {
   // Referencias DOM
   const statusBox = document.getElementById("session-status");
@@ -23,6 +21,43 @@ export async function init() {
   const rangeEl = document.getElementById("stat-range");
   const chartCanvas = document.getElementById("chart-last-session");
   const countEl = document.getElementById("stat-count");
+  let ntuChart; // instancia de timeSeriesChart
+  let pollingTimer = null;
+
+  function resetStatsAndChart() {
+    lastMeta.textContent = "—";
+    meanEl.textContent =
+      medianEl.textContent =
+      modeEl.textContent =
+      stddevEl.textContent =
+      rangeEl.textContent =
+        "—";
+    if (countEl) countEl.textContent = "—";
+
+    if (ntuChart) {
+      // Vacía la serie; el propio wrapper se encarga de actualizar el chart interno
+      ntuChart.load([]);
+    }
+  }
+
+  function startRealtimePolling() {
+    if (pollingTimer) {
+      clearInterval(pollingTimer);
+    }
+    // llamada inicial inmediata
+    loadLastSession().catch(console.error);
+    // polling cada 5 s
+    pollingTimer = setInterval(() => {
+      loadLastSession().catch(console.error);
+    }, 5000);
+  }
+
+  function stopRealtimePolling() {
+    if (pollingTimer) {
+      clearInterval(pollingTimer);
+      pollingTimer = null;
+    }
+  }
 
   // Helpers de tiempo
   const fmtTimeLocal = (isoOrMs) => {
@@ -39,7 +74,9 @@ export async function init() {
     let s = String(v).trim();
     let dt = luxon.DateTime.fromISO(s, { zone: "utc" });
     if (dt.isValid) return dt.toMillis();
-    dt = luxon.DateTime.fromFormat(s, "yyyy-LL-dd HH:mm:ss.SSS", { zone: "utc" });
+    dt = luxon.DateTime.fromFormat(s, "yyyy-LL-dd HH:mm:ss.SSS", {
+      zone: "utc",
+    });
     if (dt.isValid) return dt.toMillis();
     dt = luxon.DateTime.fromFormat(s, "yyyy-LL-dd HH:mm:ss", { zone: "utc" });
     if (dt.isValid) return dt.toMillis();
@@ -65,13 +102,22 @@ export async function init() {
         cmd.command === "start"
           ? `Sesión activa: finaliza a las ${fmtTimeLocal(cmd.expires_at)}.`
           : `No hay sesión activa.`;
+
+      // Controlar el polling según haya sesión activa o no
+      if (cmd.command === "start") {
+        startRealtimePolling();
+      } else {
+        stopRealtimePolling();
+      }
     } catch (e) {
       console.error(e);
       statusBox.innerHTML = `
-        <span class="text-danger">
-          <i class="fas fa-exclamation-circle mr-1"></i>Error al consultar /admin/command
-        </span>`;
+      <span class="text-danger">
+        <i class="fas fa-exclamation-circle mr-1"></i>Error al consultar /admin/command
+      </span>`;
       footerNote.textContent = "Ver consola para más detalles.";
+      // Si hay error, por seguridad detiene polling
+      stopRealtimePolling();
     }
   }
 
@@ -105,14 +151,26 @@ export async function init() {
     try {
       const res = await commandService.activate(); // { session_id, active_until, ... }
       $("#modal-new-session").modal("hide");
-      await loadCommand();
-      toastr?.success?.(
-        `Sesión #${res.session_id} creada. Termina: ${fmtTimeLocal(res.active_until)}`,
-        "OK"
-      );
+
+      // Limpiar gráfico + stats al crear la nueva sesión
+      resetStatsAndChart();
+
+      await loadCommand(); // esto activará startRealtimePolling() si command === "start"
+
+      // Usar window.toastr para evitar ReferenceError si toastr no está cargado
+      if (window.toastr?.success) {
+        window.toastr.success(
+          `Sesión #${res.session_id} creada. Termina: ${fmtTimeLocal(
+            res.active_until
+          )}`,
+          "OK"
+        );
+      }
     } catch (e) {
       console.error(e);
-      toastr?.error?.("No se pudo crear la sesión.");
+      if (window.toastr?.error) {
+        window.toastr.error("No se pudo crear la sesión.");
+      }
     } finally {
       btnConfirmNew.disabled = false;
       btnConfirmNew.innerHTML = `<i class="fas fa-check mr-1"></i>Sí, crear`;
@@ -133,21 +191,32 @@ export async function init() {
     countEl && (countEl.textContent = "—");
 
     try {
-      // Estructura:
-      // { session_id, started_at, ended_at, data:[{device_recorded_at, ntu}], stats:{...} }
+      // Estructura esperada:
+      // { session_id, started_at, ended_at|null, data:[{device_recorded_at, ntu}], stats:{...} }
       const last = await sessionService.getLastSession();
 
-      // Serie de puntos
-      const series = (last?.data || []).map((d) => ({
+      if (!last) {
+        lastMeta.textContent = "No hay sesiones registradas todavía.";
+        resetStatsAndChart();
+        return;
+      }
+
+      const series = (last.data || []).map((d) => ({
         x: toMsUTC(d.device_recorded_at),
         y: Number(d.ntu),
       }));
 
-      // Meta de sesión
       const count = series.length;
-      lastMeta.textContent = `Sesión #${last.session_id} — Terminó: ${fmtTimeLocal(
-        last.ended_at
-      )} — Mediciones: ${count}`;
+      const hasEnded = Boolean(last.ended_at);
+
+      if (hasEnded) {
+        lastMeta.textContent = `Sesión #${
+          last.session_id
+        } — Terminó: ${fmtTimeLocal(last.ended_at)} — Mediciones: ${count}`;
+      } else {
+        lastMeta.textContent = `Sesión #${last.session_id} — En progreso — Mediciones: ${count}`;
+      }
+
       countEl && (countEl.textContent = String(count));
 
       // Instanciar chart si no existe
@@ -163,16 +232,33 @@ export async function init() {
       // Cargar datos
       ntuChart.load(series);
 
-      // Ventana temporal EXACTA
+      // Ventana temporal:
       const tStart = toMsUTC(last.started_at);
-      const tEnd = toMsUTC(last.ended_at);
+      let tEnd;
+
+      if (hasEnded) {
+        tEnd = toMsUTC(last.ended_at);
+      } else if (series.length > 0) {
+        // Si está en progreso, usamos el último punto como "fin" provisional
+        tEnd = series[series.length - 1].x;
+      } else {
+        // Sin datos aún: ventana mínima alrededor de start
+        tEnd = tStart + 5 * 60 * 1000; // 5 minutos arbitrarios
+      }
+
       const span = tEnd - tStart;
-      const unit = span <= 2 * 60 * 1000 ? "second" : span <= 60 * 60 * 1000 ? "minute" : "hour";
+      const unit =
+        span <= 2 * 60 * 1000
+          ? "second"
+          : span <= 60 * 60 * 1000
+          ? "minute"
+          : "hour";
+
       ntuChart.setWindowWithUnit(tStart, tEnd, unit);
       ntuChart.updateThresholdRange(tStart, tEnd);
 
-      // Stats del backend
-      const s = last?.stats || {};
+      // Stats del backend (parcial si la sesión va en curso)
+      const s = last.stats || {};
       const mean = Number(s.ntu_mean);
       const median = Number(s.ntu_median);
       const mode = s.ntu_mode;
@@ -186,7 +272,7 @@ export async function init() {
       rangeEl.textContent = Number.isFinite(range) ? range : "—";
     } catch (e) {
       console.error(e);
-      lastMeta.textContent = "Error cargando datos de la última sesión.";
+      lastMeta.textContent = "Error cargando datos de la sesión.";
     }
   }
 
@@ -195,8 +281,12 @@ export async function init() {
    * ========================== */
   btnNew?.addEventListener("click", openConfirmModal);
   btnConfirmNew?.addEventListener("click", createSession);
-  btnReloadLast?.addEventListener("click", loadLastSession);
+  btnReloadLast?.addEventListener("click", () => {
+    loadLastSession().catch(console.error);
+  });
 
+  // Primero, saber si hay sesión activa
   await loadCommand();
+  // Cargar una primera vez lo que sea la "última sesión" conocida
   await loadLastSession();
 }

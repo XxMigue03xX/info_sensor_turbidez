@@ -101,7 +101,7 @@ final class SessionController
         $mm = new MeasurementModel($pdo);
 
         // Última sesión CULMINADA (active_until <= now)
-        $last = $sm->getLastFinished($deviceId);
+        $last = $sm->getLast($deviceId);
         if (!$last) {
             sendResponse(['error' => 'No hay sesiones culminadas'], 404);
         }

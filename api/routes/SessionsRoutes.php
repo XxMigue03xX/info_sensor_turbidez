@@ -16,22 +16,10 @@ require_once __DIR__ . '/../controllers/MeasurementController.php';
 $pdo = db();
 
 /* ===== /session ===== */
-if ($uri === '/session') {
-    if ($method !== 'GET' and $method !== 'POST') {
-        header('Allow: GET, POST');
-        sendResponse(['error' => 'Método no permitido'], 405);
-    }
+if ($uri === '/session' and $method === 'GET') {
     if ($method === 'GET'){
         // /GET listar sesiones
         SessionController::list($pdo);
-    }
-    else if ($method === 'POST'){
-        // /POST registrar nueva sesión
-        // Autenticación por token
-        $pdo = db();
-        $deviceId = requireDeviceAuth($pdo);
-        // Controlador de registro de mediciones (lote)
-        MeasurementController::register($pdo, $deviceId);
     }
     return true;
 }
@@ -56,6 +44,16 @@ if ($uri === '/session/last') {
     }
 
     SessionController::getLast($pdo);
+    return true;
+}
+
+if ($uri === '/session/reading' and $method === 'POST'){
+    // /POST registrar nueva sesión
+    // Autenticación por token
+    $pdo = db();
+    $deviceId = requireDeviceAuth($pdo);
+    // Controlador de registro de mediciones (individual)
+    MeasurementController::registerSingleReading($pdo, $deviceId);
     return true;
 }
 

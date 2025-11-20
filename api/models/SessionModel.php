@@ -76,14 +76,12 @@ final class SessionModel
     }
 
     /**
-     * Última sesión culminada (active_until <= now).
+     * Última sesión (la más reciente por session_id), esté activa o ya culminada.
      * Si $deviceId es null → busca en todos los dispositivos.
      * Retorna fila con started_at y active_until en formato 'Y-m-d H:i:s.u'
      */
-    public function getLastFinished(?string $deviceId = null, ?DateTimeInterface $now = null): ?array
+    public function getLast(?string $deviceId = null): ?array
     {
-        $now = $now ?? new DateTimeImmutable('now', new DateTimeZone('UTC'));
-
         if ($deviceId) {
             $st = $this->pdo->prepare(
                 "SELECT session_id, device_id,
@@ -91,22 +89,19 @@ final class SessionModel
                     DATE_FORMAT(active_until, '%Y-%m-%d %H:%i:%s.%f') AS active_until
              FROM session
              WHERE device_id = ?
-               AND active_until <= ?
              ORDER BY session_id DESC
              LIMIT 1"
             );
-            $st->execute([$deviceId, self::fmtDtMs($now)]);
+            $st->execute([$deviceId]);
         } else {
-            $st = $this->pdo->prepare(
+            $st = $this->pdo->query(
                 "SELECT session_id, device_id,
                     DATE_FORMAT(started_at,   '%Y-%m-%d %H:%i:%s.%f') AS started_at,
                     DATE_FORMAT(active_until, '%Y-%m-%d %H:%i:%s.%f') AS active_until
              FROM session
-             WHERE active_until <= ?
              ORDER BY session_id DESC
              LIMIT 1"
             );
-            $st->execute([self::fmtDtMs($now)]);
         }
 
         $row = $st->fetch();
