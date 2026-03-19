@@ -23,8 +23,8 @@ ESP32 simulator for /command and /session/reading
 - Tras enviar las 60 lecturas, duerme post_sleep_sec y vuelve al bucle.
 
 Usage:
-  python esp32_sim.py --base http://localhost/info_sensor_turbidez/api --token YOUR_TOKEN --mode fast
-  python esp32_sim.py --base http://localhost/info_sensor_turbidez/api --token YOUR_TOKEN --mode real --poll 3
+  python ESP32_sim.py --base http://localhost/info_sensor_turbidez/api --token YOUR_TOKEN --mode fast
+  python ESP32_sim.py --base http://localhost/info_sensor_turbidez/api --token YOUR_TOKEN --mode real --poll 3
 """
 
 import argparse
@@ -117,7 +117,7 @@ def poll_command(
     GET /command
     Esperado:
       {"command":"start","session_id":123,"expires_at":"...Z"}
-      ó {"command":"idle"}
+      o {"command":"idle"}
     """
     url = f"{base_url.rstrip('/')}/command"
     headers = {"X-Auth-Token": token}
